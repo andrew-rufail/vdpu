@@ -1,3 +1,7 @@
+`include "adder_tree.sv"
+`include "inv_sqrt_lut.sv"
+`include "inv_norm.sv"
+`include "tensor_core.sv"
 module hbm_read #(
     parameter d_tensor_core = 32,
     parameter id_width = 32, 
@@ -13,22 +17,13 @@ module hbm_read #(
     input  logic [addr_width-1:0] end_addr,
     input  logic get_norm, 
     input  logic [10:0] d_model, 
-    output logic [1023:0] db_vec [7:0], // 8 128 byte blocks
+    output logic [8191:0] db_vec, 
     output logic vec_valid,
     output logic [31:0] db_vec_norm [7:0],
+    output logic [5:0] scale [7:0],
     output logic [7:0] norm_valid,
     // output logic [id_width-1 :0] db_vec_id,
 
-
-    // debugging
-    // output logic [10:0] clk_cnt,
-    // output logic [31:0] dot_prod_t [7:0],
-    // output logic tc_vin,
-    // output logic [7:0] tc_valid_t,
-    // output logic [31:0] acc_t [7:0],
-    // output logic [7:0] norm_t,
-    // output logic [3:0] num_vectors_t [2:0],
-    // output logic adder_valid_t,
     // AXI Master Ports
     output logic [num_ports-1:0][id_width-1:0]   m_axi_arid,
     output logic [num_ports-1:0][addr_width-1:0] m_axi_araddr,
@@ -305,18 +300,17 @@ module hbm_read #(
         end
     endgenerate
     
-    // latency = 42
+    // latency = 3
     genvar n;
     generate
     for (n = 0; n < 8; n++) begin : norms
-        norm #(.id_width(id_width)) norm_inst (
+        inv_norm norm_inst (
             .clk          (clk),
             .nrst         (nrst),
             .valid_in     (norm_trigger[n]),
-            .dot_sum      (acc[n]), 
-            .vec_id       (final_id[n]),   
-            .inv_sqrt_out (db_vec_norm[n]),
-            .id_out       (norm_id_out[n]),  
+            .d_in      (acc[n]), 
+            .d_out (db_vec_norm[n]),
+            .scale (scale[n]),
             .valid_out    (n_valid[n])   
         );
         end
@@ -327,12 +321,6 @@ module hbm_read #(
         else norm_valid = '0;
     end 
 
-    // logic tc_vin;
-    // assign dot_prod_t = tc_dot_prod;
-    // assign tc_vin = tc_valid_in;
-    // assign tc_valid_t = tc_valid_out;
-    // assign acc_t = acc;
-    // assign norm_t = norm_trigger;
-    // assign num_vectors_t = num_vectors;
-    // assign adder_valid_t = adder_valid_out;
-endmodule
+    assign valid_out = (norm_valid) || (tc_valid_in && !(get_norm));
+   
+   endmodule
